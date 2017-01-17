@@ -3,6 +3,8 @@ require 'sqlite3'
 require 'yaml'
 require 'active_record'
 require 'optparse'
+require 'optparse/time'
+require 'optparse/date'
 require 'ostruct'
 require 'pp'
 require 'awesome_print'
@@ -35,6 +37,8 @@ class SMSOptionParser
 		options.dbpath = './mmssms.db'
 		options.outfile = './output.html'
 		options.cssfile = './style.css'
+		options.startdate = 0
+		options.enddate = Time.now.to_time.to_i * 1000
 		opt_parser = OptionParser.new do |opts|
 			opts.banner = "Usage: smsconv.rb [options]"
 
@@ -77,9 +81,23 @@ class SMSOptionParser
 			end
 
 
-			opts.on("-l", "--log-level", OptionParser::OctalInteger, "Loglevel in Hex") do |l|
+			opts.on("-l", "--log-level [hexlevel]", OptionParser::OctalInteger, "Loglevel in Hex") do |l|
 				options.loglevel = l
 			end
+
+			opts.on("-s", "--startdate [time]", Date, "Ignore messages before this date") do |d|
+				puts "Selected start date: "
+				pp(d)
+				options.startdate = d.to_time.to_i * 1000
+			end
+
+			opts.on("-e", "--enddate [time]", Date, "Ignore messages after this date") do |d|
+				puts "Selected end date: "
+				pp(d)
+				options.enddate = d.to_time.to_i * 1000
+			end
+
+
 			opts.separator ""
 			opts.separator "Common options:"
 
@@ -133,7 +151,8 @@ class SMSConv
 			# Select ALL the messages from the database and ignore the ones we want later
 			#@sms = Sms.all
 			# Select messages by a thread ID
-			@sms = Sms.where(thread_id: @options.threads).all
+			puts @options.startdate.class.to_s
+			@sms = Sms.where(thread_id: @options.threads).all.where("date > ? OR date = ? OR date = ?", @options.startdate, 0, nil).all.where("date < ? OR date = ? OR date = ?", @options.enddate,0,nil).all
 			if (!@sms)
 				logMsg(LOG_ERROR, "We found no messages for the threads in: " + @options.threads.join(','))
 				return(false)
@@ -156,27 +175,85 @@ class SMSConv
 	end
 
 	def getHTML()
-		outputString = ""
+		logMsg(LOG_FENTRY, "We were called")
+		outputString = "<head>\n"
+		outputString += getStyleSheet()
+		outputString += "</head>\n<body>\n"
 		@msgs.each do |msg|
 			if (!msg[:success])
+				logMsg(LOG_ERROR | LOG_DUMP, "Msg status was not successful", msg)
 				next
 			end
 			outputString  +=  msg[:data][:html] + "\n"
 		end
+		outputString += "</body>\n"
 		return(outputString)
+	end
+
+	def getStyleSheet()
+		logMsg(LOG_FENTRY, "We were called")
+		if (!File.exists?(@options.cssfile))
+			logMsg(LOG_ERROR, "CSS File #{@options.cssfile} does not exist!")
+			return("")
+		end
+		cssString = File.read(@options.cssfile)
+		outString = "<style>\n#{cssString}\n</style>\n"
+		return(outString)
 	end
 
 	def convertPMSGToHTML(pmsg)
 		logMsg(LOG_FENTRY, "We were called")
-		cssClasses = []
+		cssClasses = ['msgContainer']
 		cssClasses << "msgType_" + pmsg[:type]
-		bodyDiv = createDiv(CGI::escapeHTML(pmsg[:body]), "body_" + pmsg[:id].to_s, "sms_body")
-		timeDiv = createDiv(CGI::escapeHTML(pmsg[:date]), "date_" + pmsg[:id].to_s, "sms_date")
+		bodyDiv = createP(CGI::escapeHTML(pmsg[:body]), "body_" + pmsg[:id].to_s, "sms_body")
+		timeDiv = createP(CGI::escapeHTML(pmsg[:date]), "date_" + pmsg[:id].to_s, "sms_date")
 		outputString = createDiv(bodyDiv + timeDiv, "msgContainer_" + pmsg[:id].to_s, cssClasses, makeHTMLAttrsFromHash(pmsg))
+		outputString += createDiv()
 		return(outputString)
 	end
 
-	def createDiv(inner, id = "", classes = "", extraTags = nil)
+	def createSpan(inner, id = "", classes = "", extraTags = nil)
+		logMsg(LOG_FENTRY, "We were called")
+		if (extraTags)
+			if (extraTags.is_a?(Array))
+				extraTags = extraTags.join(' ')
+			else
+				extraTags = ""
+			end
+		else
+			extraTags = ""
+		end
+		classList = ""
+		if (classes.is_a?(String))
+			classes = [classes]
+		end
+		classList = classes.join(' ')
+		outputString = "<span id='#{id}' class='" + classList + "' " + extraTags + ">#{inner}</span>"
+		return(outputString)
+	end
+
+	def createP(inner, id = "", classes = "", extraTags = nil)
+		logMsg(LOG_FENTRY, "We were called")
+		if (extraTags)
+			if (extraTags.is_a?(Array))
+				extraTags = extraTags.join(' ')
+			else
+				extraTags = ""
+			end
+		else
+			extraTags = ""
+		end
+		classList = ""
+		if (classes.is_a?(String))
+			classes = [classes]
+		end
+		classList = classes.join(' ')
+		outputString = "<p id='#{id}' class='" + classList + "' " + extraTags + ">#{inner}</p>"
+		return(outputString)
+	end
+
+
+	def createDiv(inner = "", id = "", classes = "clearDiv", extraTags = nil)
 		logMsg(LOG_FENTRY, "We were called")
 		if (extraTags)
 			if (extraTags.is_a?(Array))

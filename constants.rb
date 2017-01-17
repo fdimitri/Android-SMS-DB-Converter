@@ -43,7 +43,7 @@ LOG_TRANSLATE = {
 }
 
 HTML_ATTRS_EXCLUDE = [
-	'id', 'class', 'style'
+	'id', 'class', 'style', 'body', 'date'
 ]
 
 
